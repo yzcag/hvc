@@ -1189,6 +1189,26 @@ function folderBanner(main) {
   if (b) main.append(b);
 }
 
+/* Comme LockNormalWorkdayCells (Excel) : une demi-journée travaillée normalement verrouille son motif et sa durée.
+   AM : Début AM 07:00-09:30 et Fin AM 11:30-13:00, sans Départ/Retour AM.
+   PM : Début PM 12:00-13:30 et Fin PM 15:00-18:00, sans Départ/Retour PM.
+   Sauf si un motif de journée complète (liste lockConditions) est inscrit le matin ou l'après-midi.
+   Le motif n'est verrouillé que s'il est vide (un motif déjà inscrit reste modifiable). */
+const NORMAL_LOCK_SKIP = new Set(['VAC-Vacances', '120-VA-Maladie pour vacances', '123-Congé compensatoire ARTT', '124-Report jour férié',
+  '138-Affaires personnelles', '140-Congé mobile RE', '230-Traitement différé', '310-Mariage ou union civile', '312-Mariage union civile famille',
+  '414-Déménage demande employeur', '416-Départ volontaire congé payé', '478-Motif jugé valable SM Rach',
+  '480-Congé sabbatique (après 7 ans de service) - rachetabl', '488-EFPR-Responsabilité parentale', '510-Juré', '716-Naissance adoption 5 jours',
+  '740-Maternité assujettie RQAP AE', '720-Adoption 2 jours', '776-Prol maternité paternité Rach', '790-Congé de paternité - 5 semaines avec indemnité',
+  '999-Arrivée/Départ']);
+function normalHalves(e) {
+  const out = { am: false, pm: false };
+  if (NORMAL_LOCK_SKIP.has(e.k) || NORMAL_LOCK_SKIP.has(e.m)) return out;
+  const v = x => x != null && x !== '', inR = (x, a, b) => x >= a && x <= b, hm = (h, m) => h * 60 + m;
+  out.am = !e.k && v(e.c) && v(e.f) && !v(e.d) && !v(e.e) && inR(e.c, hm(7, 0), hm(9, 30)) && inR(e.f, hm(11, 30), hm(13, 0));
+  out.pm = !e.m && v(e.g) && v(e.j) && !v(e.h) && !v(e.i) && inR(e.g, hm(12, 0), hm(13, 30)) && inR(e.j, hm(15, 0), hm(18, 0));
+  return out;
+}
+
 /* ---------- Formulaire ---------- */
 let VIEW = null;
 function renderForm(main) {
@@ -1383,14 +1403,17 @@ function update() {
       inp.disabled = locked;
       if (document.activeElement !== inp) inp.value = S.bad[badKey(idx, f)] != null ? S.bad[badKey(idx, f)] : (locked ? '' : H.fmt(raw[f]));
     }
+    const norm = normalHalves(e);
     for (const [cf, df, auto, lock] of [['k', 'l', e.autoL, e.lockAM], ['m', 'n', e.autoN, e.lockPM]]) {
-      const s = R.inp[cf]; s.disabled = hol;
+      const s = R.inp[cf], nl = cf === 'k' ? norm.am : norm.pm;   // demi-journée travaillée normalement : motif verrouillé
+      s.disabled = hol || nl;
+      s.title = nl ? 'Demi-journée travaillée normalement : aucun motif d’absence à inscrire' : '';
       if (hol && !s.querySelector('option[value="FÉRIÉ"]')) s.append(el('option', { value: 'FÉRIÉ', text: 'FÉRIÉ' }));
       if (document.activeElement !== s) s.value = hol ? 'FÉRIÉ' : (raw[cf] || '');
       s.classList.toggle('ferie', hol);
       const di = R.inp[df]; const code = cf === 'k' ? e.k : e.m;
       const isDataDev = code === 'ARTT' || H.has(code, H.F.DATADEV);
-      di.disabled = hol || auto || lock || !code;
+      di.disabled = hol || auto || lock || !code || nl;
       const shown = isDataDev ? (cf === 'k' ? e.ad : e.ae) : e[df];
       if (document.activeElement !== di) di.value = S.bad[badKey(idx, df)] != null ? S.bad[badKey(idx, df)] : (code === 'ARTT' ? '' : H.fmt(shown));
       di.title = auto || isDataDev ? 'Calculée automatiquement' : '';
