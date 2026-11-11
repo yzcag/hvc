@@ -101,6 +101,8 @@ tr.day td.err { box-shadow: inset 0 0 0 1px var(--red); }
 .remline:hover, .remline:focus-visible { text-decoration: underline; }
 .btns { display: grid; justify-items: center; gap: 20px; margin-top: 30px; }
 .xbtn { background: var(--gray); color: var(--ink); border: 1px solid #8E949C; padding: 4px 12px; }
+.xbtn:disabled { opacity: .45; cursor: not-allowed; }
+.xbtn.del { color: #A4161A; }
 .xbtn.big { color: var(--green); font-weight: bold; width: 186px; padding: 7px 6px; border: 2px solid; border-color: #E6E9ED #7F858D #7F858D #E6E9ED; box-shadow: 2px 2px 3px rgba(0, 0, 0, .35); line-height: 1.25; }
 .xbtn.big:active { border-color: #7F858D #E6E9ED #E6E9ED #7F858D; box-shadow: none; transform: translate(1px, 1px); }
 .maj { margin-top: 30px; font-size: 12px; }
@@ -186,6 +188,12 @@ table.arttt tr.hol td:not(.date) { background: #EEF0F3; }
 .dlgbtn:disabled { color: #9A9A9A; cursor: not-allowed; }
 .dlgbtn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
 
+/* Bulle d'envoi, placée sous le panneau Téléchargements d'Edge */
+.sendnotice { position: fixed; top: 80px; left: calc(50% + 50px); transform: translateX(-50%); width: 310px; z-index: 90; box-sizing: border-box;
+  background: #FFF4CE; color: #1F1F1F; border: 2px solid #E8A200; border-radius: 8px; padding: 9px 12px; box-shadow: 0 6px 22px rgba(0, 0, 0, .3);
+  font-size: 13px; line-height: 1.4; pointer-events: none; }
+.sendnotice .sn-arrow { position: absolute; top: 14px; right: -15px; color: #E8A200; font-size: 17px; line-height: 1; }
+
 /* Configuration initiale */
 .sheet.cfg { width: 980px; }
 .ctitle { background: var(--navy); color: #FFFFFF; font-weight: bold; font-size: 16px; padding: 6px 10px; width: fit-content; min-width: 300px; }
@@ -213,7 +221,7 @@ table.pat { border-collapse: collapse; margin-top: 6px; }
 /* Archives */
 .archbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0 10px; }
 table.arch td { border: 1px solid var(--ink); padding: 5px 8px; height: 30px; }
-table.arch td.c { text-align: center; } table.arch td.red { color: var(--red); font-weight: bold; } table.arch td.nowrap { white-space: nowrap; }
+table.arch td.c { text-align: center; } table.arch td.nowrap .xbtn { padding: 4px 9px; } table.arch td.red { color: var(--red); font-weight: bold; } table.arch td.nowrap { white-space: nowrap; }
 table.arch tr.cur td { background: var(--note); }
 .loading { padding: 60px 0; text-align: center; color: #555; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -1605,24 +1613,55 @@ function shrinkImage(src, maxW, maxH) {
     img.src = url;
   });
 }
+/* Courriel avec la pièce jointe : un fichier .eml « non envoyé » (X-Unsent: 1).
+   Ouvert, Outlook (classique) affiche un nouveau message prêt à envoyer : destinataires, objet, message et PDF joint.
+   (Un lien mailto: ne peut pas joindre de fichier.) */
+/* Bulle à gauche du panneau « Téléchargements » d'Edge : explique qu'il faut cliquer « Conserver ».
+   Pas de bouton : un clic dans la page fermerait aussi le panneau d'Edge. Elle disparaît quand Outlook s'ouvre
+   (la page perd le focus), à la touche Échap, ou après 6 secondes. */
+function sendNotice() {
+  const old = document.getElementById('sendNotice'); if (old) old.remove();
+  const t0 = Date.now();
+  const close = () => { n.remove(); window.removeEventListener('blur', onBlur); document.removeEventListener('keydown', esc); };
+  const onBlur = () => { if (Date.now() - t0 > 1500) close(); };
+  const esc = e => { if (e.key === 'Escape') close(); };
+  const n = el('div', { id: 'sendNotice', class: 'sendnotice', role: 'status' },
+    el('div', { class: 'sn-arrow', 'aria-hidden': 'true', text: '▶' }),
+    el('div', { html: 'Votre courriel est prêt. L’avertissement à droite est normal. Cliquez sur <b style="white-space:nowrap">« Conserver »</b>&nbsp;: Outlook s’ouvrira pour envoyer votre courriel.' }));
+  document.body.append(n);
+  window.addEventListener('blur', onBlur); document.addEventListener('keydown', esc);
+  setTimeout(() => { if (n.isConnected) close(); }, 6000);
+}
+function b64(bytes) {
+  let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/.{1,76}/g, '$&\r\n');
+}
+const utf8 = t => new TextEncoder().encode(t);
+const mimeWord = t => /^[\x20-\x7e]*$/.test(t) ? t : `=?UTF-8?B?${b64(utf8(t)).replace(/\r\n/g, '')}?=`;
+function buildEml({ to, cc, subject, body, fileName: fn, pdf }) {
+  const B = 'HVC_' + Date.now().toString(36), L = [];
+  if (to) L.push(`To: ${to}`);
+  if (cc) L.push(`Cc: ${cc}`);
+  L.push(`Subject: ${mimeWord(subject)}`, 'X-Unsent: 1', 'MIME-Version: 1.0', `Content-Type: multipart/mixed; boundary="${B}"`, '',
+    `--${B}`, 'Content-Type: text/plain; charset="utf-8"', 'Content-Transfer-Encoding: base64', '', b64(utf8(body.replace(/\r?\n/g, '\r\n'))),
+    `--${B}`, `Content-Type: application/pdf; name="${mimeWord(fn)}"`, 'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${mimeWord(fn)}"`, '', b64(pdf), `--${B}--`, '');
+  return L.join('\r\n');
+}
 async function sendPdf(start) {
-  // Le PDF d'archive existe déjà : on le met à jour, puis on ouvre le courriel (pas de second fichier)
+  // Le PDF d'archive est mis à jour, puis un courriel prêt à envoyer (PDF joint) est ouvert dans Outlook
   ensurePeriod(start); S.periods[start].updatedAt = new Date().toISOString(); lsSave();
   clearTimeout(S.timers[start]); delete S.timers[start];
-  let attach;
   if (FS.state === 'granted') {
-    try { await writeArchive(start); attach = `le fichier « ${fileName(start)} » de votre dossier « ${FS.dir.name} »`; setSave(`Archivé : ${FS.dir.name}\\${fileName(start)}`); }
-    catch (e) { toast('Le PDF d\u2019archive n\u2019a pas pu être mis à jour (fichier ouvert dans un autre programme ?). Fermez-le et réessayez.'); return; }
-  } else {
-    download(fileName(start), new Blob([buildPdf(start)], { type: 'application/pdf' }));
-    attach = `le fichier « ${fileName(start)} » téléchargé`;
+    try { await writeArchive(start); setSave(`Archivé : ${FS.dir.name}\\${fileName(start)}`); }
+    catch (e) { toast('Le PDF d’archive n’a pas pu être mis à jour (fichier ouvert dans un autre programme ?). Fermez-le et réessayez.'); return; }
   }
-  const to = S.profile.manager || ''; const cc = S.profile.cc || '';
-  const subject = `Courriel automatisé HVC | Période commençant le ${start}`;
-  const body = (S.profile.message || DEFAULT_MSG);
-  const q = [cc ? 'cc=' + encodeURIComponent(cc) : '', 'subject=' + encodeURIComponent(subject), 'body=' + encodeURIComponent(body)].filter(Boolean).join('&');
-  window.location.href = `mailto:${encodeURIComponent(to).replace(/%40/g, '@')}?${q}`;
-  toast(`Joignez ${attach} au courriel qui s\u2019ouvre.`);
+  const pdf = new Uint8Array(buildPdf(start));
+  const eml = buildEml({ to: S.profile.manager || '', cc: S.profile.cc || '',
+    subject: `Courriel automatisé HVC | Période commençant le ${start}`, body: S.profile.message || DEFAULT_MSG,
+    fileName: fileName(start), pdf });
+  download(fileName(start).replace(/\.pdf$/i, '.eml'), new Blob([eml], { type: 'message/rfc822' }));
+  sendNotice();
 }
 
 /* ---------- Configuration initiale ---------- */
@@ -2002,6 +2041,22 @@ function applyH8All() {
     if (changed) scheduleSave(st);
   }
 }
+/* Supprimer une période : retirée de la liste, de la copie du navigateur et du dossier d'archives (fichier PDF) */
+async function deletePeriod(k) {
+  const name = FILES[k] || fileName(k);
+  if (!window.confirm(`Supprimer définitivement la période du ${periodLabel(k)} ?\n\nLe fichier « ${name} » sera aussi supprimé du dossier d’archives. Cette action est irréversible.`)) return;
+  clearTimeout(S.timers[k]); delete S.timers[k];
+  let fileMsg = '';
+  if (FS.dir && FS.state === 'granted') {
+    for (const n of new Set([FILES[k], fileName(k)].filter(Boolean))) {
+      try { await FS.dir.removeEntry(n); } catch (e) { if (e && e.name !== 'NotFoundError') fileMsg = ` Le fichier « ${n} » n’a pas pu être supprimé (ouvert dans un autre programme ?).`; }
+    }
+  } else if (FS.dir) fileMsg = ' Le dossier d’archives n’est pas autorisé : supprimez le fichier PDF vous-même.';
+  delete S.periods[k]; delete S.archived[k]; delete FILES[k]; S.unsynced.delete(k);
+  if (S.current === k) S.current = currentPeriod();
+  lsSave(); render();
+  toast(`Période ${k} supprimée.${fileMsg}`);
+}
 function renderArchives(main) {
   const keys = Object.keys(S.periods).sort().reverse();
   const tb = el('tbody');
@@ -2017,14 +2072,18 @@ function renderArchives(main) {
       el('td', { class: 'c' + (n ? ' red' : ''), text: n ? String(n) : '0' }),
       el('td', { text: arch ? fileName(k) : (FS.state === 'granted' ? 'À écrire…' : 'Pas encore dans le dossier') }),
       el('td', { class: 'c nowrap' },
-        el('button', { class: 'xbtn', type: 'button', text: 'Ouvrir', onclick: () => { S.current = k; S.view = 'form'; render(); } }), ' ',
-        el('button', { class: 'xbtn', type: 'button', text: 'PDF', onclick: () => download(fileName(k), new Blob([buildPdf(k)], { type: 'application/pdf' })) }))));
+        el('button', { class: 'xbtn', type: 'button', text: 'Voir ou modifier', title: 'Afficher cette période dans le Formulaire pour la consulter ou la corriger (le PDF est mis à jour)', onclick: () => { S.current = k; S.view = 'form'; render(); } }), ' ',
+        el('button', { class: 'xbtn', type: 'button', text: 'PDF', onclick: () => download(fileName(k), new Blob([buildPdf(k)], { type: 'application/pdf' })) }), ' ',
+        k === currentPeriod()
+          ? el('button', { class: 'xbtn', type: 'button', text: 'Supprimer', disabled: true, title: 'La période en cours ne peut pas être supprimée' })
+          : el('button', { class: 'xbtn del', type: 'button', text: 'Supprimer', onclick: () => deletePeriod(k) }))));
   }
   const sheet = el('div', { class: 'sheet' },
     el('div', { class: 'h-title', text: 'ARCHIVES' }),
     el('div', { class: 'archbar' }, el('span', { text: FS.dir ? `Dossier d’archives : ${FS.dir.name}` : 'Aucun dossier d’archives' }),
       keys.length ? el('button', { class: 'xbtn', type: 'button', text: 'Exporter toutes les périodes (Excel)', onclick: () => exportXlsx(keys.slice().reverse()) }) : null),
     keys.length ? el('table', { class: 'xl arch' },
+      el('colgroup', {}, [8, 13, 8, 9, 9, 6, 7, 15, 25].map(w => el('col', { style: `width:${w}%` }))),
       el('thead', {}, el('tr', { class: 'hd' }, ['Période', 'Du … au …', 'Solde au début', 'Crédit ou débit à reporter', 'Crédits utilisés (122)', 'Jours saisis', 'Remarques', 'Fichier', ''].map(t => el('th', { text: t })))), tb)
       : el('p', { class: 'intro', text: 'Aucune période pour l’instant. Chaque période commencée apparaît ici, avec son fichier PDF dans le dossier d’archives.' }),
     el('div', { class: 'maj', text: 'MAJ le : ' + MAJ }));
