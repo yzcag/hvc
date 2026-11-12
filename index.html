@@ -2157,7 +2157,7 @@ function buildPdf(start) {
     margin: { left: 24, right: 24 } });
   // Bas de feuille
   let y = pdf.lastAutoTable.finalY + 16;
-  if (y > 490) { pdf.addPage(); y = 40; }
+  if (y > 465) { pdf.addPage(); y = 40; }   // bas de feuille (signature, totaux, message) : ≈ 140 pt
   // Signature : même géométrie que la zone de la page (px × SIG_AREA.k), image par-dessus les lignes
   { const L = SIG_AREA, k = L.k, X = px => 24 + px * k, Y = px => y + px * k;
     pdf.setDrawColor(0); pdf.setLineWidth(0.5);
@@ -2180,6 +2180,12 @@ function buildPdf(start) {
   box(532, y + 26, 46, 13); if (!t.res.soldeOK) pdf.setTextColor(...RED); pdf.text(H.fmt(t.res.solde), 555, y + 35, { align: 'center' }); pdf.setTextColor(0);
   pdf.setFont('helvetica', 'normal'); pdf.text('Objet du message :', 282, y + 56);
   box(282, y + 59, 296, 12, GRAY); pdf.setFont('helvetica', 'bold'); pdf.text(`Courriel automatisé HVC | Période commençant le ${start}`, 285, y + 67.5);
+  // Message (comme dans le classeur)
+  pdf.setFont('helvetica', 'normal'); pdf.text('Message :', 282, y + 82);
+  box(282, y + 85, 296, 52, GRAY); pdf.setFontSize(6.8);
+  { let my = y + 93;
+    for (const line of pdf.splitTextToSize(S.profile.message || DEFAULT_MSG, 288)) { if (my > y + 134) break; pdf.text(line, 285, my); my += 8; } }
+  pdf.setFontSize(7.5);
   // Remarques
   pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.5); pdf.text('Remarques:', 600, y);
   pdf.rect(600, y + 4, 168, 96); pdf.setFontSize(6.3); pdf.setTextColor(...RED);
@@ -2188,9 +2194,7 @@ function buildPdf(start) {
     for (const line of pdf.splitTextToSize(m, 162)) { if (ry > y + 96) break; pdf.text(line, 603, ry); ry += 8; }
     i++; if (ry > y + 96) { if (i < t.msgs.length) pdf.text(`… et ${t.msgs.length - i} autre(s)`, 603, y + 98); break; }
   }
-  pdf.setTextColor(0); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(6.5);
-  pdf.text('MAJ le : ' + MAJ, 24, 600);
-  pdf.text(`Mis à jour le ${new Date(data.updatedAt).toLocaleString('fr-CA')}`, 768, 600, { align: 'right' });
+  pdf.setTextColor(0);
   return pdf.output('arraybuffer');
 }
 
