@@ -188,8 +188,9 @@ table.arttt tr.hol td:not(.date) { background: #EEF0F3; }
 .dlgbtn:disabled { color: #9A9A9A; cursor: not-allowed; }
 .dlgbtn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
 
-/* Bulle d'envoi, placée sous le panneau Téléchargements d'Edge */
-.sendnotice { position: fixed; top: 80px; left: calc(50% + 50px); transform: translateX(-50%); width: 310px; z-index: 90; box-sizing: border-box;
+/* Bulle d'envoi : ancrée au bord droit de la fenêtre, comme le panneau Téléchargements d'Edge (≈ 360 px de large),
+   pour rester collée à son bord gauche quelle que soit la largeur de l'écran */
+.sendnotice { position: fixed; top: 80px; right: 556px; width: 310px; z-index: 90; box-sizing: border-box;
   background: #FFF4CE; color: #1F1F1F; border: 2px solid #E8A200; border-radius: 8px; padding: 9px 12px; box-shadow: 0 6px 22px rgba(0, 0, 0, .3);
   font-size: 13px; line-height: 1.4; pointer-events: none; }
 .sendnotice .sn-arrow { position: absolute; top: 14px; right: -15px; color: #E8A200; font-size: 17px; line-height: 1; }
