@@ -1084,12 +1084,19 @@ async function ensureCurrentArchive() {
 }
 
 /* ---------- Démarrage ---------- */
+/* Démarrage protégé : si le navigateur ou le dossier ne répond pas (mise à jour, politique de sécurité, dossier
+   OneDrive « en ligne seulement »…), la page s'affiche quand même au lieu de rester sur « Chargement… ». */
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, ko) => setTimeout(() => ko(new Error('timeout')), ms))]);
 async function boot() {
   const saved = lsLoad();
   S.profile = saved.profile || null;
   S.periods = saved.periods || {};
-  await restoreFolder();
-  if (FS.state === 'granted') { try { await readFolder(); } catch (e) { FS.state = 'prompt'; } }
+  let slow = '';
+  try { await withTimeout(restoreFolder(), 4000); } catch (e) { FS.dir = null; FS.state = 'none'; slow = 'Le navigateur ne répond pas pour le dossier d’archives : vos saisies sont gardées dans ce navigateur.'; }
+  if (FS.state === 'granted') {
+    try { await withTimeout(readFolder(), 10000); }
+    catch (e) { FS.state = 'prompt'; if (e && e.message === 'timeout') slow = `Le dossier « ${FS.dir.name} » ne répond pas (dossier réseau ou OneDrive ?) : vos saisies sont gardées dans ce navigateur.`; }
+  }
   if (!S.profile) {                        // copie du navigateur effacée : profil repris d'une archive
     const last = Object.values(S.periods).sort((a, b) => (a.updatedAt || '') < (b.updatedAt || '') ? 1 : -1)[0];
     if (last && last.profile) S.profile = last.profile;
@@ -1097,6 +1104,7 @@ async function boot() {
   S.cfg = S.profile ? H.config(S.profile.schedule) : null;
   S.loaded = true;
   render();
+  if (slow) setSave(slow, true);
   if (S.cfg && !(FS.supported && !FS.dir)) ensureCurrentArchive();
 }
 
